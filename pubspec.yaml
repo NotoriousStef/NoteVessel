@@ -1,0 +1,45 @@
+name: voice_notes_ai
+description: AI-powered voice notes that save to Google Drive
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Speech to Text
+  speech_to_text: ^6.6.0
+
+  # HTTP requests (Claude API + Drive API)
+  http: ^1.2.0
+
+  # Google Sign In + Drive
+  google_sign_in: ^6.2.1
+  googleapis: 13.1.0
+  googleapis_auth: ^1.5.1
+
+  # Secure storage for API keys
+  flutter_secure_storage: ^9.0.0
+
+  # Permissions
+  permission_handler: ^11.3.0
+
+  # Local notifications (feedback al usuario)
+  flutter_local_notifications: ^17.1.2
+
+  # Intl para fechas
+  intl: ^0.19.0
+
+  # UI
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

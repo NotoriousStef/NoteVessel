@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "32889591906",
+    "project_id": "voice-notes-ai-497801",
+    "storage_bucket": "voice-notes-ai-497801.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:32889591906:android:2266654517179f3c91993b",
+        "android_client_info": {
+          "package_name": "com.example.voice_notes_ai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "32889591906-ij81ognaib461fmk126r5b4jfsm2seas.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWVOXZZIrywA1Koj1J8D597PWWULmvZh4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "32889591906-ij81ognaib461fmk126r5b4jfsm2seas.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
