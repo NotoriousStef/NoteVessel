@@ -7,7 +7,7 @@ import '../models/note_model.dart';
 // para no tener que cambiar nada en el resto de la app
 class AiService {
   static const String _baseUrl =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
   final AuthService _auth = AuthService();
 
