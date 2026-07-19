@@ -4,7 +4,6 @@ import '../services/speech_service.dart';
 import '../services/ai_service.dart';
 import '../widgets/waveform_widget.dart';
 
-// Modelo de mensaje de conversación
 class _ChatMessage {
   final String text;
   final bool isUser;
@@ -20,6 +19,7 @@ class _ChatMessage {
 }
 
 enum AppState { idle, listening, processing }
+enum InputMode { voice, text }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,15 +32,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _speechService = SpeechService();
   final _aiService = AiService();
   final _scrollController = ScrollController();
+  final _textController = TextEditingController();
+  final _textFocusNode = FocusNode();
 
   AppState _appState = AppState.idle;
+  InputMode _inputMode = InputMode.voice;
   String _partialText = '';
   bool _hasAudioInput = false;
 
   final List<_ChatMessage> _messages = [];
   bool get _hasMessages => _messages.isNotEmpty;
 
-  // Typing animation — sin cambios
   final String _welcomeMessage =
       '¡Hola! Soy tu asistente de notas. Tocá el micrófono y decime qué querés anotar.';
   String _displayedWelcome = '';
@@ -53,6 +55,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late Animation<double> _glowAnimation;
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
+  late AnimationController _modeController;
+  late Animation<double> _modeAnimation;
 
   @override
   void initState() {
@@ -82,6 +86,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
     _fadeController.forward();
 
+    _modeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _modeAnimation = CurvedAnimation(
+      parent: _modeController,
+      curve: Curves.easeInOut,
+    );
+
     _speechService.initialize();
     _startTypingAnimation();
   }
@@ -108,7 +121,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _pulseController.dispose();
     _glowController.dispose();
     _fadeController.dispose();
+    _modeController.dispose();
     _scrollController.dispose();
+    _textController.dispose();
+    _textFocusNode.dispose();
     super.dispose();
   }
 
@@ -124,7 +140,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
-  // ── Lógica de grabación ──────────────────────────────────────────────────
+  // ── Cambio de modo ───────────────────────────────────────────────────────
+
+  void _switchToText() {
+    if (_appState == AppState.listening) return;
+    setState(() => _inputMode = InputMode.text);
+    _modeController.forward();
+    Future.delayed(
+      const Duration(milliseconds: 150),
+      () => _textFocusNode.requestFocus(),
+    );
+  }
+
+  void _switchToVoice() {
+    _textFocusNode.unfocus();
+    setState(() => _inputMode = InputMode.voice);
+    _modeController.reverse();
+  }
+
+  // ── Lógica de voz ────────────────────────────────────────────────────────
 
   Future<void> _toggleListening() async {
     if (_appState == AppState.listening) {
@@ -147,7 +181,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _startListening() async {
     final status = await Permission.microphone.request();
     if (!status.isGranted) {
-      _addMessage('Se necesita permiso del micrófono.', isUser: false, isError: true);
+      _addMessage('Se necesita permiso del micrófono.',
+          isUser: false, isError: true);
       return;
     }
 
@@ -184,6 +219,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Lógica de texto ──────────────────────────────────────────────────────
+
+  Future<void> _sendTextMessage() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty || _appState == AppState.processing) return;
+    _textController.clear();
+    _textFocusNode.unfocus();
+    await _processText(text);
+    Future.delayed(
+      const Duration(milliseconds: 400),
+      () => _textFocusNode.requestFocus(),
+    );
+  }
+
+  // ── Procesamiento común ──────────────────────────────────────────────────
+
   Future<void> _processText(String text) async {
     setState(() {
       _appState = AppState.processing;
@@ -191,13 +242,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _hasAudioInput = false;
     });
 
-    // Agregar mensaje del usuario
     _addMessage(text, isUser: true);
 
     try {
       final action = await _aiService.processVoiceText(text);
       final result = await _aiService.executeAction(action);
-
       _addMessage(result, isUser: false);
     } catch (e) {
       _addMessage(
@@ -210,7 +259,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     setState(() => _appState = AppState.idle);
   }
 
-  void _addMessage(String text, {required bool isUser, bool isError = false}) {
+  void _addMessage(String text,
+      {required bool isUser, bool isError = false}) {
     setState(() {
       _messages.add(_ChatMessage(
         text: text,
@@ -222,12 +272,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _scrollToBottom();
   }
 
-  // ── Colores por estado ───────────────────────────────────────────────────
+  // ── Colores ──────────────────────────────────────────────────────────────
 
   Color get _stateColor {
     switch (_appState) {
       case AppState.idle:
-        return const Color(0xFF6C63FF);
+        return _inputMode == InputMode.text
+            ? const Color(0xFF00BFA5) // Verde azulado para modo texto
+            : const Color(0xFF6C63FF);
       case AppState.listening:
         return const Color(0xFFFF4D6D);
       case AppState.processing:
@@ -241,9 +293,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A12),
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
-          // Fondo con glow — sin cambios
+          // Fondo con glow
           AnimatedBuilder(
             animation: _glowAnimation,
             builder: (_, __) => Positioned(
@@ -255,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(colors: [
-                    _stateColor.withOpacity(_glowAnimation.value * 0.18),
+                    _stateColor.withValues(alpha: _glowAnimation.value * 0.18),
                     Colors.transparent,
                   ]),
                 ),
@@ -273,7 +326,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(colors: [
-                    _stateColor.withOpacity(_glowAnimation.value * 0.12),
+                    _stateColor.withValues(alpha: _glowAnimation.value * 0.12),
                     Colors.transparent,
                   ]),
                 ),
@@ -304,12 +357,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: _stateColor.withOpacity(0.12),
+              color: _stateColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(20),
-              border:
-                  Border.all(color: _stateColor.withOpacity(0.3), width: 1),
+              border: Border.all(
+                  color: _stateColor.withValues(alpha: 0.3), width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -323,7 +377,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                          color: _stateColor.withOpacity(0.8), blurRadius: 6)
+                          color: _stateColor.withValues(alpha: 0.8),
+                          blurRadius: 6)
                     ],
                   ),
                 ),
@@ -342,7 +397,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           const Spacer(),
           IconButton(
-            icon: const Icon(Icons.tune_rounded, color: Colors.white38, size: 22),
+            icon: const Icon(Icons.tune_rounded,
+                color: Colors.white38, size: 22),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
           ),
         ],
@@ -351,7 +407,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildBody() {
-    // Sin mensajes: pantalla de bienvenida intacta
     if (!_hasMessages && _appState != AppState.listening) {
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -363,11 +418,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ],
       );
     }
-    // Con mensajes (o escuchando): vista de conversación
     return _buildConversation();
   }
 
-  // Pantalla de bienvenida — idéntica al original
   Widget _buildWelcomeContent() {
     return Column(
       children: [
@@ -378,14 +431,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             shape: BoxShape.circle,
             gradient: LinearGradient(
               colors: [
-                _stateColor.withOpacity(0.7),
-                _stateColor.withOpacity(0.3)
+                _stateColor.withValues(alpha: 0.7),
+                _stateColor.withValues(alpha: 0.3)
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             boxShadow: [
-              BoxShadow(color: _stateColor.withOpacity(0.3), blurRadius: 20)
+              BoxShadow(
+                  color: _stateColor.withValues(alpha: 0.3), blurRadius: 20)
             ],
           ),
           child: const Icon(Icons.auto_awesome_rounded,
@@ -412,7 +466,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       child: Container(
                         width: 2,
                         height: 16,
-                        margin: const EdgeInsets.only(left: 2, bottom: 2),
+                        margin:
+                            const EdgeInsets.only(left: 2, bottom: 2),
                         color: _stateColor,
                       ),
                     ),
@@ -425,7 +480,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Vista de conversación
   Widget _buildConversation() {
     final extraItems = (_appState == AppState.listening ? 1 : 0) +
         (_appState == AppState.processing ? 1 : 0);
@@ -439,7 +493,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           return _buildMessageBubble(_messages[index]);
         }
         if (_appState == AppState.listening) return _buildLiveBubble();
-        if (_appState == AppState.processing) return _buildProcessingBubble();
+        if (_appState == AppState.processing) {
+          return _buildProcessingBubble();
+        }
         return const SizedBox.shrink();
       },
     );
@@ -466,13 +522,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ],
           Flexible(
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: msg.isUser
-                    ? const Color(0xFF6C63FF).withOpacity(0.22)
+                    ? const Color(0xFF6C63FF).withValues(alpha: 0.22)
                     : msg.isError
-                        ? const Color(0xFFFF4D6D).withOpacity(0.08)
+                        ? const Color(0xFFFF4D6D).withValues(alpha: 0.08)
                         : const Color(0xFF1A1A2E),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
@@ -482,10 +538,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 border: Border.all(
                   color: msg.isUser
-                      ? const Color(0xFF6C63FF).withOpacity(0.28)
+                      ? const Color(0xFF6C63FF).withValues(alpha: 0.28)
                       : msg.isError
-                          ? const Color(0xFFFF4D6D).withOpacity(0.2)
-                          : Colors.white.withOpacity(0.05),
+                          ? const Color(0xFFFF4D6D).withValues(alpha: 0.2)
+                          : Colors.white.withValues(alpha: 0.05),
                 ),
               ),
               child: _buildMessageText(msg),
@@ -510,7 +566,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(
-          colors: [color, color.withOpacity(0.4)],
+          colors: [color, color.withValues(alpha: 0.4)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -523,11 +579,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (msg.isUser) {
       return Text(
         msg.text,
-        style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.5),
+        style: const TextStyle(
+            color: Colors.white, fontSize: 15, height: 1.5),
       );
     }
-
-    // Markdown simple para mensajes de IA
     final lines = msg.text.split('\n');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -536,7 +591,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           return Text(
             line.replaceAll('**', ''),
             style: TextStyle(
-              color: msg.isError ? const Color(0xFFFF4D6D) : Colors.white,
+              color:
+                  msg.isError ? const Color(0xFFFF4D6D) : Colors.white,
               fontSize: 15,
               fontWeight: FontWeight.w600,
               height: 1.6,
@@ -566,7 +622,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           line,
           style: TextStyle(
             color: msg.isError
-                ? const Color(0xFFFF4D6D).withOpacity(0.85)
+                ? const Color(0xFFFF4D6D).withValues(alpha: 0.85)
                 : Colors.white60,
             fontSize: 14,
             height: 1.5,
@@ -576,7 +632,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Burbuja "en vivo" mientras escucha
   Widget _buildLiveBubble() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -586,9 +641,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFFF4D6D).withOpacity(0.12),
+                color: const Color(0xFFFF4D6D).withValues(alpha: 0.12),
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(16),
                   topRight: Radius.circular(16),
@@ -596,7 +652,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   bottomRight: Radius.circular(4),
                 ),
                 border: Border.all(
-                    color: const Color(0xFFFF4D6D).withOpacity(0.28)),
+                    color: const Color(0xFFFF4D6D).withValues(alpha: 0.28)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -607,7 +663,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     Text(
                       _partialText,
                       style: const TextStyle(
-                          color: Colors.white70, fontSize: 14, height: 1.5),
+                          color: Colors.white70,
+                          fontSize: 14,
+                          height: 1.5),
                     ),
                   ],
                 ],
@@ -616,13 +674,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           const SizedBox(width: 8),
           _buildAvatar(
-              icon: Icons.person_rounded, color: const Color(0xFFFF4D6D)),
+              icon: Icons.person_rounded,
+              color: const Color(0xFFFF4D6D)),
         ],
       ),
     );
   }
 
-  // Burbuja "procesando"
   Widget _buildProcessingBubble() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -634,8 +692,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               color: const Color(0xFFFFC857)),
           const SizedBox(width: 8),
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFF1A1A2E),
               borderRadius: const BorderRadius.only(
@@ -644,7 +702,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 bottomLeft: Radius.circular(4),
                 bottomRight: Radius.circular(16),
               ),
-              border: Border.all(color: Colors.white.withOpacity(0.05)),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.05)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -660,8 +719,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(width: 10),
                 const Text('Procesando...',
-                    style:
-                        TextStyle(color: Colors.white38, fontSize: 13)),
+                    style: TextStyle(
+                        color: Colors.white38, fontSize: 13)),
               ],
             ),
           ),
@@ -670,15 +729,181 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Sección inferior ─────────────────────────────────────────────────────
+
   Widget _buildBottomSection() {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: _inputMode == InputMode.voice
+          ? _buildVoiceInput()
+          : _buildTextInput(),
+    );
+  }
+
+  // Modo voz — igual que antes + botón de cambio a texto
+  Widget _buildVoiceInput() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 48, top: 16),
+      padding: const EdgeInsets.only(bottom: 40, top: 12),
       child: Column(
         children: [
           _buildHint(),
-          const SizedBox(height: 28),
-          _buildMicButton(),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Botón cambiar a texto
+              _buildModeToggleButton(
+                icon: Icons.keyboard_rounded,
+                onTap: _switchToText,
+                tooltip: 'Cambiar a texto',
+              ),
+              const SizedBox(width: 24),
+              // Botón micrófono principal
+              _buildMicButton(),
+              const SizedBox(width: 24),
+              // Espacio simétrico
+              const SizedBox(width: 44),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  // Modo texto — campo de texto + botón enviar + botón volver a voz
+  Widget _buildTextInput() {
+    return Container(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 12,
+        bottom: MediaQuery.of(context).viewInsets.bottom > 0 ? 12 : 32,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F1A),
+        border: Border(
+          top: BorderSide(color: _stateColor.withValues(alpha: 0.15), width: 1),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Botón volver a voz
+          _buildModeToggleButton(
+            icon: Icons.mic_rounded,
+            onTap: _switchToVoice,
+            tooltip: 'Cambiar a voz',
+          ),
+          const SizedBox(width: 10),
+          // Campo de texto
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 120),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A2E),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: _textFocusNode.hasFocus
+                      ? _stateColor.withValues(alpha: 0.5)
+                      : Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+              child: TextField(
+                controller: _textController,
+                focusNode: _textFocusNode,
+                maxLines: null,
+                enabled: _appState != AppState.processing,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Escribí tu mensaje...',
+                  hintStyle: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    fontSize: 15,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 10),
+                  border: InputBorder.none,
+                ),
+                textInputAction: TextInputAction.newline,
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Botón enviar
+          _buildSendButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeToggleButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required String tooltip,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _stateColor.withValues(alpha: 0.1),
+            border: Border.all(
+              color: _stateColor.withValues(alpha: 0.25),
+              width: 1,
+            ),
+          ),
+          child: Icon(icon, color: _stateColor, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSendButton() {
+    final canSend = _textController.text.trim().isNotEmpty &&
+        _appState != AppState.processing;
+
+    return GestureDetector(
+      onTap: canSend ? _sendTextMessage : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: canSend
+              ? LinearGradient(
+                  colors: [_stateColor, _stateColor.withValues(alpha: 0.7)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: canSend ? null : Colors.white.withValues(alpha: 0.05),
+          boxShadow: canSend
+              ? [
+                  BoxShadow(
+                    color: _stateColor.withValues(alpha: 0.4),
+                    blurRadius: 12,
+                    spreadRadius: 1,
+                  )
+                ]
+              : [],
+        ),
+        child: Icon(
+          Icons.arrow_upward_rounded,
+          color: canSend ? Colors.white : Colors.white24,
+          size: 20,
+        ),
       ),
     );
   }
@@ -693,7 +918,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            isListening ? Icons.stop_circle_outlined : Icons.touch_app_rounded,
+            isListening
+                ? Icons.stop_circle_outlined
+                : Icons.touch_app_rounded,
             color: Colors.white24,
             size: 14,
           ),
@@ -718,7 +945,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         animation: Listenable.merge([_pulseAnimation, _glowAnimation]),
         builder: (context, child) {
           final scale = isListening ? _pulseAnimation.value : 1.0;
-          final glowIntensity = isListening ? 1.0 : _glowAnimation.value;
+          final glowIntensity =
+              isListening ? 1.0 : _glowAnimation.value;
 
           return Transform.scale(
             scale: scale,
@@ -732,8 +960,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: RadialGradient(colors: [
-                        _stateColor.withOpacity(
-                            glowIntensity * (isListening ? 0.35 : 0.15)),
+                        _stateColor.withValues(alpha: glowIntensity * (isListening ? 0.35 : 0.15)),
                         Colors.transparent,
                       ]),
                     ),
@@ -745,7 +972,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: _stateColor
-                          .withOpacity(isListening ? 0.5 : 0.2),
+                          .withValues(alpha: isListening ? 0.5 : 0.2),
                       width: 1,
                     ),
                   ),
@@ -762,7 +989,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             end: Alignment.bottomRight,
                             colors: [
                               _stateColor,
-                              _stateColor.withOpacity(0.7)
+                              _stateColor.withValues(alpha: 0.7)
                             ],
                           ),
                     color: isProcessing ? Colors.transparent : null,
@@ -774,7 +1001,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         : [
                             BoxShadow(
                               color: _stateColor
-                                  .withOpacity(glowIntensity * 0.6),
+                                  .withValues(alpha: glowIntensity * 0.6),
                               blurRadius: isListening ? 40 : 24,
                               spreadRadius: isListening ? 6 : 2,
                             ),
@@ -814,7 +1041,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         Text(
           'REC',
           style: TextStyle(
-            color: Colors.white.withOpacity(0.6),
+            color: Colors.white.withValues(alpha: 0.6),
             fontSize: 9,
             fontWeight: FontWeight.w700,
             letterSpacing: 2,

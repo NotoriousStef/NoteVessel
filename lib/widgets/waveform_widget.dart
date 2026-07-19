@@ -87,7 +87,7 @@ class _WaveformWidgetState extends State<WaveformWidget>
                 height: height,
                 decoration: BoxDecoration(
                   color: widget.isActive
-                      ? const Color(0xFFEA4335).withOpacity(0.7 + _animations[i].value * 0.3)
+                      ? const Color(0xFFEA4335).withValues(alpha: 0.7 + _animations[i].value * 0.3)
                       : Colors.white12,
                   borderRadius: BorderRadius.circular(2),
                 ),

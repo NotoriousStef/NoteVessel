@@ -13,7 +13,7 @@ class NoteResultCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF34A853).withOpacity(0.4)),
+        border: Border.all(color: const Color(0xFF34A853).withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,10 +84,10 @@ class NoteResultCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFBBC04).withOpacity(0.1),
+                      color: const Color(0xFFFBBC04).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: const Color(0xFFFBBC04).withOpacity(0.3),
+                        color: const Color(0xFFFBBC04).withValues(alpha: 0.3),
                       ),
                     ),
                     child: Row(
@@ -120,10 +120,10 @@ class NoteResultCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1A73E8).withOpacity(0.15),
+                          color: const Color(0xFF1A73E8).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: const Color(0xFF1A73E8).withOpacity(0.3),
+                            color: const Color(0xFF1A73E8).withValues(alpha: 0.3),
                           ),
                         ),
                         child: Text(
