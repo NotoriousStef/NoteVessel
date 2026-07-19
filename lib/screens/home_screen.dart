@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/speech_service.dart';
 import '../services/ai_service.dart';
-import '../services/drive_service.dart';
 import '../widgets/waveform_widget.dart';
 
 // Modelo de mensaje de conversación
@@ -32,7 +31,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _speechService = SpeechService();
   final _aiService = AiService();
-  final _driveService = DriveService();
   final _scrollController = ScrollController();
 
   AppState _appState = AppState.idle;
@@ -197,21 +195,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _addMessage(text, isUser: true);
 
     try {
-      final note = await _aiService.processVoiceText(text);
-      await _driveService.saveNote(note);
+      final action = await _aiService.processVoiceText(text);
+      final result = await _aiService.executeAction(action);
 
-      final aiText = StringBuffer();
-      aiText.write('**${note.title}**\n\n');
-      aiText.write(note.content);
-      if (note.hasAction && note.actionSummary != null) {
-        aiText.write('\n\n✅ ${note.actionSummary}');
-      }
-      if (note.tags.isNotEmpty) {
-        aiText.write('\n\n${note.tags.map((t) => '#$t').join(' ')}');
-      }
-      aiText.write('\n\n_Guardado en Drive_');
-
-      _addMessage(aiText.toString(), isUser: false);
+      _addMessage(result, isUser: false);
     } catch (e) {
       _addMessage(
         e.toString().replaceAll('Exception: ', ''),

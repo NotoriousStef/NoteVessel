@@ -82,7 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _statusMessage = 'Verificando acceso a Drive...';
     });
     try {
-      final folderId = await _driveService.getOrCreateFolder();
+      final folderId = await _driveService.getOrCreateRootFolder();
       setState(() {
         _loading = false;
         _statusMessage = '✅ Carpeta lista en Drive (ID: ${folderId.substring(0, 8)}...)';
