@@ -396,6 +396,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           const Spacer(),
           IconButton(
+            icon: const Icon(Icons.checklist_rounded,
+                color: Colors.white38, size: 22),
+            onPressed: () => Navigator.pushNamed(context, '/todo'),
+          ),
+          IconButton(
             icon: const Icon(Icons.tune_rounded,
                 color: Colors.white38, size: 22),
             onPressed: () => Navigator.pushNamed(context, '/settings'),

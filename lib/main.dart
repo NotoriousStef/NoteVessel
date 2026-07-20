@@ -3,9 +3,13 @@ import 'package:flutter/services.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/auth_service.dart';
+import 'package:hive_ce_flutter/hive_ce_flutter.dart';
+import 'screens/todo_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  await Hive.openBox('todos');
   // Forzar orientación vertical
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const VoiceNotesApp());
@@ -24,6 +28,7 @@ class VoiceNotesApp extends StatelessWidget {
       routes: {
         '/home': (ctx) => const HomeScreen(),
         '/settings': (ctx) => const SettingsScreen(),
+        '/todo': (context) => const TodoScreen(),
       },
     );
   }

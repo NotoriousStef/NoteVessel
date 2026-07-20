@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  hive_ce: ^2.11.0
+  hive_ce_flutter: ^2.3.3
 
   # Speech to Text
   speech_to_text: ^7.4.0

@@ -3,10 +3,11 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'auth_service.dart';
 import 'drive_service.dart';
+import 'todo_service.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 class AiAction {
-  final String type; // 'create_file' | 'create_folder' | 'append' | 'update' | 'read' | 'chat'
+  final String type; // 'create_file' | 'create_folder' | 'append' | 'update' | 'read' | 'chat' | 'add_todo' | 'complete_todo' | 'delete_todo'
   final String targetName;
   final String? targetId;
   final String? parentId;
@@ -31,6 +32,7 @@ class AiService {
 
   final AuthService _auth = AuthService();
   final DriveService _drive = DriveService();
+  final TodoService _todos = TodoService();
 
   Future<AiAction> processVoiceText(String rawText) async {
     final apiKey = await _auth.getAiApiKey();
@@ -53,15 +55,20 @@ class AiService {
         ? '(vacío, no hay archivos aún)'
         : existingFiles.map((f) => '  ${f.toString()}').join('\n');
 
+    final todoList = await _todos.summaryForPrompt();
+
     final systemPrompt = '''
 Sos un asistente de notas de voz inteligente. El usuario te habla en español y vos procesás su pedido.
-Podés tener conversaciones normales Y gestionar archivos en Google Drive según lo que el usuario necesite.
+Podés tener conversaciones normales Y gestionar archivos en Google Drive, Y gestionar la ToDo List del usuario, según lo que necesite.
 
 Fecha y hora actual: $dateStr
 Carpeta raíz ID: $rootId
 
 Archivos y carpetas existentes en "Notas de Voz IA":
 $fileList
+
+Tareas actuales en la ToDo List (formato: [x]=hecha [ ]=pendiente, con su id):
+$todoList
 
 Tu tarea:
 1. Entender la intención del usuario
@@ -72,7 +79,7 @@ Tu tarea:
 ACCIONES DISPONIBLES:
 ═══════════════════════════════
 
-1. CHAT — Para saludos, preguntas generales, charla que NO requiere Drive:
+1. CHAT — Para saludos, preguntas generales, charla que NO requiere Drive ni ToDo:
 {
   "type": "chat",
   "target_name": "",
@@ -132,15 +139,49 @@ ACCIONES DISPONIBLES:
   "user_message": "mensaje confirmando lo que hiciste"
 }
 
+7. AGREGAR TAREA A LA TODO LIST — Cuando el usuario quiere anotar un pendiente:
+{
+  "type": "add_todo",
+  "target_name": "texto corto y claro de la tarea",
+  "target_id": null,
+  "parent_id": null,
+  "content": null,
+  "user_message": "mensaje confirmando que agregaste la tarea"
+}
+
+8. MARCAR TAREA COMO HECHA — Cuando el usuario dice que ya hizo algo de su ToDo List:
+{
+  "type": "complete_todo",
+  "target_name": "texto de la tarea tal como aparece en la lista (para buscarla si no tenés el id)",
+  "target_id": "id de la tarea si lo identificás en la lista de arriba, si no null",
+  "parent_id": null,
+  "content": null,
+  "user_message": "mensaje confirmando que la marcaste como hecha"
+}
+
+9. BORRAR TAREA — Cuando el usuario quiere eliminar una tarea de la ToDo List:
+{
+  "type": "delete_todo",
+  "target_name": "texto de la tarea tal como aparece en la lista",
+  "target_id": "id de la tarea si lo identificás en la lista de arriba, si no null",
+  "parent_id": null,
+  "content": null,
+  "user_message": "mensaje confirmando que la borraste"
+}
+
 ═══════════════════════════════
 REGLAS DE DECISIÓN:
 ═══════════════════════════════
 - Saludos, preguntas generales, charla → "chat"
 - "¿Qué dice mi nota de...?", "¿Qué anoté sobre...?", "Leeme...", "¿Tengo algo sobre...?" → "read"
-- "Anotá", "Guardá", "Creá una nota" → "create_file"
-- "Creá una carpeta" → "create_folder"  
-- "Agregá", "Añadí", "Sumá" a algo existente → "append"
-- "Cambiá", "Reemplazá", "Modificá" algo existente → "update"
+- "Anotá", "Guardá", "Creá una nota" (contenido largo, tipo nota) → "create_file"
+- "Creá una carpeta" → "create_folder"
+- "Agregá", "Añadí", "Sumá" a algo existente (un archivo) → "append"
+- "Cambiá", "Reemplazá", "Modificá" algo existente (un archivo) → "update"
+- "Agregá a mi lista de tareas", "tengo que hacer...", "recordame que tengo que...", "anotá en pendientes" → "add_todo"
+- "Ya hice...", "terminé...", "marcá como hecho...", "completé..." referido a una tarea de la ToDo List → "complete_todo"
+- "Borrá de mis tareas...", "sacá ... de la lista", "eliminá la tarea de..." → "delete_todo"
+- Si el usuario pide algo ambiguo entre nota (archivo) y tarea (todo), preferí "add_todo" si es un pendiente corto y accionable ("comprar pan"), y "create_file" si es contenido más largo o informativo.
 - Si menciona un archivo/carpeta de la lista → usá su ID
 - Si no menciona carpeta específica → usá rootId como parent_id
 - El contenido siempre debe estar bien formateado en markdown
@@ -249,9 +290,44 @@ REGLAS DE DECISIÓN:
         );
         return action.userMessage;
 
+      case 'add_todo':
+        if (action.targetName.trim().isEmpty) {
+          return 'No entendí qué tarea querías agregar. ¿Podés repetirlo?';
+        }
+        await _todos.add(action.targetName, source: 'ai');
+        return action.userMessage;
+
+      case 'complete_todo':
+        final id = await _resolveTodoId(action);
+        if (id == null) {
+          return 'No encontré "${action.targetName}" en tu ToDo List.';
+        }
+        await _todos.markDone(id, done: true);
+        return action.userMessage;
+
+      case 'delete_todo':
+        final id = await _resolveTodoId(action);
+        if (id == null) {
+          return 'No encontré "${action.targetName}" en tu ToDo List.';
+        }
+        await _todos.delete(id);
+        return action.userMessage;
+
       default:
         return 'No entendí qué querías hacer. ¿Podés repetirlo?';
     }
+  }
+
+  /// Resuelve el id de una tarea a partir de la acción: usa target_id si la
+  /// IA lo identificó correctamente contra el prompt, y si no, cae a buscar
+  /// por texto (para cuando la IA no copió bien el id).
+  Future<String?> _resolveTodoId(AiAction action) async {
+    if (action.targetId != null && action.targetId!.isNotEmpty) {
+      final existing = await _todos.getById(action.targetId!);
+      if (existing != null) return existing.id;
+    }
+    final found = await _todos.findByText(action.targetName);
+    return found?.id;
   }
 
   /// Segunda llamada a la IA para responder preguntas sobre el contenido leído
