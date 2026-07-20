@@ -10,9 +10,20 @@ class SpeechService {
   final SpeechToText _speech = SpeechToText();
   bool _initialized = false;
 
-  // Texto acumulado de todos los segmentos de esta sesión
+  // Texto ya finalizado por el motor (segmentos completos)
   String _accumulatedWords = '';
-  String get lastWords => _accumulatedWords;
+  // Texto del segmento actual, todavía no finalizado por el motor,
+  // pero ya visible en pantalla vía el callback parcial
+  String _currentPartial = '';
+
+  String get lastWords => _currentFullText;
+
+  String get _currentFullText {
+    if (_currentPartial.isEmpty) return _accumulatedWords;
+    return _accumulatedWords.isEmpty
+        ? _currentPartial
+        : '$_accumulatedWords $_currentPartial';
+  }
 
   Function(String)? _onResultCallback;
   Function(String)? _onPartialCallback;
@@ -20,6 +31,7 @@ class SpeechService {
 
   bool _isStoppingManually = false;
   bool _restartScheduled = false;
+  bool _listenStarting = false;
   String? _activeLocale;
   Timer? _silenceTimer;
 
@@ -31,7 +43,6 @@ class SpeechService {
       onError: (error) {
         print('STT Error: ${error.errorMsg}');
 
-        // Errores transitorios: ignorar y dejar que onStatus maneje el reinicio
         const transient = [
           'error_no_match',
           'error_client',
@@ -40,8 +51,6 @@ class SpeechService {
 
         if (_isStoppingManually || transient.contains(error.errorMsg)) return;
 
-        // Error real y fatal: parar todo antes de propagar
-        // así el servicio no queda en estado inconsistente
         _silenceTimer?.cancel();
         _isStoppingManually = true;
         _restartScheduled = false;
@@ -53,7 +62,6 @@ class SpeechService {
       },
       onStatus: (status) {
         print('STT Status: $status');
-        // Android paró sin resultado → reiniciar si el usuario no tocó stop
         if ((status == 'notListening' || status == 'done') &&
             !_isStoppingManually &&
             !_restartScheduled) {
@@ -70,8 +78,6 @@ class SpeechService {
     return _initialized;
   }
 
-  // Timer de silencio: se resetea cada vez que el usuario habla.
-  // Si pasan 10s sin voz, procesa automáticamente.
   void _resetSilenceTimer() {
     _silenceTimer?.cancel();
     _silenceTimer = Timer(_silenceTimeout, () {
@@ -80,64 +86,64 @@ class SpeechService {
     });
   }
 
-  // Finaliza la sesión y dispara el resultado
   void _finalize() {
     _silenceTimer?.cancel();
     _isStoppingManually = true;
     _restartScheduled = false;
     _speech.cancel();
-    final words = _accumulatedWords;
+    final words = _currentFullText;
     _accumulatedWords = '';
+    _currentPartial = '';
     final callback = _onResultCallback;
     _onResultCallback = null;
     _onPartialCallback = null;
     _onErrorCallback = null;
-    callback?.call(words); // Llamar siempre, incluso con string vacío
+    callback?.call(words);
   }
 
-  // Inicia (o reinicia) una sesión de escucha
   Future<void> _doListen() async {
-    if (_isStoppingManually || _onResultCallback == null) return;
-    _restartScheduled = false;
-    try {
-      await _speech.listen(
-        onResult: _onSTTResult,
+  if (_isStoppingManually || _onResultCallback == null) return;
+  if (_listenStarting || _speech.isListening) return;
+  _restartScheduled = false;
+  _listenStarting = true;
+  try {
+    await _speech.listen(
+      onResult: _onSTTResult,
+      listenOptions: SpeechListenOptions(
+        cancelOnError: false,
+        partialResults: true,
+        listenMode: ListenMode.dictation,
         listenFor: const Duration(minutes: 2),
         pauseFor: const Duration(seconds: 30),
         localeId: _activeLocale,
-        listenOptions: SpeechListenOptions(
-          cancelOnError: false,
-          partialResults: true,
-          listenMode: ListenMode.dictation,
-        ),
-      );
-    } catch (e) {
-      print('STT: error en listen: $e');
-    }
+      ),
+    );
+  } catch (e) {
+    print('STT: error en listen: $e');
+  } finally {
+    _listenStarting = false;
   }
+}
 
   void _onSTTResult(SpeechRecognitionResult result) {
     final words = result.recognizedWords;
     print('STT result: "$words" final=${result.finalResult}');
 
     if (result.finalResult && words.isNotEmpty) {
-      // Acumular segmento
       _accumulatedWords = _accumulatedWords.isEmpty
           ? words
           : '$_accumulatedWords $words';
+      _currentPartial = '';
       print('STT acumulado: "$_accumulatedWords"');
 
-      // Resetear timer — el usuario habló, dar 10s más
       _resetSilenceTimer();
-
-      // Mostrar texto acumulado en la UI
       _onPartialCallback?.call(_accumulatedWords);
 
-      // Reiniciar escucha para el próximo segmento
       _restartScheduled = true;
       Future.delayed(const Duration(milliseconds: 150), _doListen);
     } else if (!result.finalResult && words.isNotEmpty) {
-      // Parcial: mostrar acumulado + lo que está diciendo ahora
+      _resetSilenceTimer();
+      _currentPartial = words;
       final display = _accumulatedWords.isEmpty
           ? words
           : '$_accumulatedWords $words';
@@ -162,6 +168,7 @@ class SpeechService {
     }
 
     _accumulatedWords = '';
+    _currentPartial = '';
     _onResultCallback = onResult;
     _onPartialCallback = onPartial;
     _onErrorCallback = onError;
@@ -171,7 +178,6 @@ class SpeechService {
 
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // Detectar locale español
     final locales = await _speech.locales();
     String? bestLocale;
     for (final preferred in ['es_US', 'es_ES', 'es_AR', 'es_MX', 'es_BO']) {
@@ -183,26 +189,32 @@ class SpeechService {
     bestLocale ??=
         locales.where((l) => l.localeId.startsWith('es')).firstOrNull?.localeId;
 
-    // Android necesita el locale con guión (es-US) no guión bajo (es_US)
     _activeLocale = bestLocale?.replaceAll('_', '-');
     print('Locale: $bestLocale → $_activeLocale');
 
-    // Iniciar timer de silencio desde el principio
     _resetSilenceTimer();
 
     await _doListen();
   }
 
-  /// El usuario tocó el botón stop
-  Future<void> stopListening() async {
+  /// El usuario tocó el botón stop.
+  /// Devuelve el texto acumulado + lo que se estaba diciendo en ese momento,
+  /// sin depender de que el motor confirme un resultado final.
+  Future<String> stopListening() async {
     _silenceTimer?.cancel();
     _isStoppingManually = true;
     _restartScheduled = false;
-    await _speech.cancel();
-    // NO limpiar _accumulatedWords — home_screen lo lee via lastWords
+
+    final words = _currentFullText;
+
+    await _speech.stop();
+
+    _accumulatedWords = '';
+    _currentPartial = '';
     _onResultCallback = null;
     _onPartialCallback = null;
     _onErrorCallback = null;
+    return words;
   }
 
   Future<void> cancel() async {
@@ -211,6 +223,7 @@ class SpeechService {
     _restartScheduled = false;
     await _speech.cancel();
     _accumulatedWords = '';
+    _currentPartial = '';
     _onResultCallback = null;
     _onPartialCallback = null;
     _onErrorCallback = null;

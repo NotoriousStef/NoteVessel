@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'auth_service.dart';
 import 'drive_service.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 class AiAction {
   final String type; // 'create_file' | 'create_folder' | 'append' | 'update' | 'read' | 'chat'
@@ -25,7 +26,8 @@ class AiAction {
 class AiService {
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';
-  static const String _model = 'meta-llama/llama-3.1-8b-instruct:free';
+  static const String _model = 'openrouter/free'; // Asegura asignar un modelo gratuito pero no podemos saber cual se esta asignando
+  static bool _dateFormattingInitialized = false;
 
   final AuthService _auth = AuthService();
   final DriveService _drive = DriveService();
@@ -34,6 +36,11 @@ class AiService {
     final apiKey = await _auth.getAiApiKey();
     if (apiKey == null || apiKey.isEmpty) {
       throw Exception('API Key no configurada. Ve a Configuración.');
+    }
+
+    if (!_dateFormattingInitialized) {
+      await initializeDateFormatting('es');
+      _dateFormattingInitialized = true;
     }
 
     final now = DateTime.now();

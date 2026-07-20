@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
 
   # Speech to Text
-  speech_to_text: ^6.6.0
+  speech_to_text: ^7.4.0
 
   # HTTP requests (Claude API + Drive API)
   http: ^1.2.0

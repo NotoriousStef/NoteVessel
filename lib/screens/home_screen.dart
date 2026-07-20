@@ -162,10 +162,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _toggleListening() async {
     if (_appState == AppState.listening) {
-      final lastText = _speechService.lastWords;
-      await _speechService.stopListening();
-      if (lastText.isNotEmpty) {
-        await _processText(lastText);
+      final finalText = await _speechService.stopListening();
+      if (finalText.isNotEmpty) {
+        await _processText(finalText);
       } else {
         setState(() {
           _appState = AppState.idle;
